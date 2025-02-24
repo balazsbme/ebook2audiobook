@@ -1,6 +1,17 @@
 ## Guide for the New entry points for the main Dockerfile
 
+
+
 Being this `Dockerfile` ``
+
+### Available PyTorch Variant Options
+
+- **cuda11** – Use this variant for systems with CUDA 11.
+- **cuda12** – Use this variant for systems with CUDA 12.
+- **amd** – Use this variant for AMD GPU support.
+- **intel** – Use this variant for Intel GPU/ROCm support.
+- **cpu** (Optional) – Use this variant for CPU-only installation (if you create and use a CPU-specific wheel).
+
 
 ### **Pre-Built, Tagged Images**
 
