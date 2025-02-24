@@ -16,6 +16,10 @@ services:
     platform: linux/amd64
     tty: true
     stdin_open: true
+    environment:
+      # Sets the runtime PyTorch variant. The default is "cuda11".
+      # This unified image installs the appropriate wheel based on this variable.
+      - PYTORCH_VARIANT=${PYTORCH_VARIANT:-cuda11}
     ports:
       - 7860:7860 # Maps container's port 7860 to the host's port 7860.
     deploy:
@@ -41,10 +45,9 @@ services:
           #       - gpu
     volumes:
       - ./:/home/user/app  # Maps the local directory to the container.
-
 # Additional Notes:
 # - "CPU Memory (RAM)" refers to the system RAM used by the container.
 # - "GPU VRAM" refers to the graphics memory allocated to the container's GPU tasks.
 # - To enable GPU VRAM limits, ensure the NVIDIA Docker runtime is installed and active.
-# - The `memory` options (RAM) use units like 'm' (megabytes) or 'g' (gigabytes).
-# - The `count` parameter for GPU limits controls how much of the GPU (and indirectly VRAM) is accessible.
+# - The memory options (RAM) use units like 'm' (megabytes) or 'g' (gigabytes).
+# - The count parameter for GPU limits controls how much of the GPU (and indirectly VRAM) is accessible.
