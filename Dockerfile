@@ -4,7 +4,8 @@
 FROM python:3.12
 
 # Set default PyTorch variant; override with -e PYTORCH_VARIANT=... when running if needed.
-ENV PYTORCH_VARIANT=cuda11
+ARG PYTORCH_VARIANT=cuda11
+ENV PYTORCH_VARIANT=$PYTORCH_VARIANT
 
 # Create and switch to a non-root user
 RUN useradd -m -u 1000 user
