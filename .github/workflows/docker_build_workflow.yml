@@ -1,40 +1,75 @@
 name: Build and Push Docker Image
+
 on:
   workflow_dispatch:  # Allows manual trigger
   release:
     types:
       - published  # Triggers automatically when a new release is published
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: [cuda11, cuda12, amd, intel]
     steps:
-      - name: Checkout code
+      # Step 1: Checkout the repository code.
+      - name: Checkout Code
         uses: actions/checkout@v3
 
+      # Step 2: Log in to Docker Hub.
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # Step 3: Get the Git commit hash and set it as an environment variable.
       - name: Get Git Commit Hash
-        run: echo "GIT_HASH=$(git rev-parse --short=9 HEAD)" >> $GITHUB_ENV
+        id: git_hash
+        run: |
+          GIT_HASH=$(git rev-parse --short=9 HEAD)
+          echo "GIT_HASH=${GIT_HASH}" >> $GITHUB_ENV
+          echo "Git commit hash is: ${GIT_HASH}"
 
+      # Step 4: Get the latest release tag from GitHub and set it as an environment variable.
       - name: Get Latest Release Tag
         id: get_tag
         run: |
-          TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r .tag_name)
-          echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+          RELEASE_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r .tag_name)
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
+          echo "Latest release tag is: ${RELEASE_TAG}"
 
-      - name: Build Docker image
+      # Step 5: Build the Docker image for each variant.
+      - name: Build Docker Image for Variant ${{ matrix.variant }}
         run: |
-          docker build --platform linux/amd64 \
-            -t ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:latest \
-            -t ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$GIT_HASH \
-            -t ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$RELEASE_TAG .
+          VARIANT="${{ matrix.variant }}"
+          # Define the image tag for this variant.
+          IMAGE="${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:${VARIANT}"
+          echo "Building Docker image for variant: $VARIANT"
+          docker build --platform linux/amd64 --pull \
+            --build-arg PYTORCH_VARIANT=$VARIANT \
+            -t $IMAGE \
+            .
+          
+          # If the variant is 'cuda11' (the default), add global tags.
+          if [ "$VARIANT" = "cuda11" ]; then
+            docker tag $IMAGE ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:latest
+            docker tag $IMAGE ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$GIT_HASH
+            docker tag $IMAGE ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$RELEASE_TAG
+          fi
 
-      - name: Push Docker image
+      # Step 6: Push the Docker images.
+      - name: Push Docker Images for Variant ${{ matrix.variant }}
         run: |
-          docker push ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$GIT_HASH
-          docker push ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$RELEASE_TAG
+          VARIANT="${{ matrix.variant }}"
+          IMAGE="${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:${VARIANT}"
+          echo "Pushing image for variant: $VARIANT"
+          docker push $IMAGE
+          
+          # If the variant is 'cuda11', push the global tags as well.
+          if [ "$VARIANT" = "cuda11" ]; then
+            docker push ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:latest
+            docker push ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$GIT_HASH
+            docker push ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$RELEASE_TAG
+          fi
