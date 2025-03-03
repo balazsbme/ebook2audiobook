@@ -12,6 +12,7 @@ jobs:
     strategy:
       matrix:
         variant: [cuda11, cuda12, amd, intel]
+      max-parallel: 1  # Run one variant at a time to save disk space
     steps:
       # Step 1: Checkout the repository code.
       - name: Checkout Code
@@ -73,3 +74,9 @@ jobs:
             docker push ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$GIT_HASH
             docker push ${{ secrets.DOCKER_USERNAME }}/ebook2audiobook:$RELEASE_TAG
           fi
+
+      # Step 7: Clean up local Docker images to free up space.
+      - name: Prune Docker Images
+        run: |
+          echo "Cleaning up local Docker images to free up space..."
+          docker image prune -af
