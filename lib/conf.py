@@ -7,6 +7,7 @@ max_python_version = (3,12)
 
 NATIVE = 'native'
 FULL_DOCKER = 'full_docker'
+demo_huggingface = "drewThomasson/ebook2audiobook"
 
 debug_mode = True
 
@@ -62,3 +63,102 @@ os.environ["SUNO_OFFLOAD_CPU"] = "True" # BARK option: "False" needs A GPU
 os.environ["SUNO_USE_SMALL_MODELS"] = "True" # "False" needs a GPU with VRAM > 4GB
 if platform.system() == "Windows":
     os.environ["ESPEAK_DATA_PATH"] = os.path.expandvars(r"%USERPROFILE%\scoop\apps\espeak-ng\current\eSpeak NG\espeak-ng-data")
+
+ebook_formats = ['.epub', '.mobi', '.azw3', 'fb2', 'lrf', 'rb', 'snb', 'tcr', '.pdf', '.txt', '.rtf', 'doc', '.docx', '.html', '.odt', '.azw']
+audiobook_format = 'm4b' # or 'mp3'
+audioproc_format = 'wav' # only 'wav' is valid for now
+
+default_tts_engine = 'xtts'
+default_fine_tuned = 'std'
+default_model_files = ['config.json', 'vocab.json', 'model.pth', 'ref.wav']
+
+models = {
+    "xtts": {
+        "std": {
+            "lang": "multi",
+            "repo": "tts_models/multilingual/multi-dataset/xtts_v2",
+            "sub": "",
+            "voice": default_voice_file
+        },
+        "AiExplained": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/AiExplained",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "adult", "male", "AiExplained_24khz.wav"))
+        },
+        "BobOdenkirk": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/BobOdenkirk",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "adult", "male", "BobOdenkirk_24khz.wav"))
+        },
+        "BobRoss": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/BobRoss",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "adult", "male", "BobRoss_24khz.wav"))
+        },
+        "BryanCranston": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/BryanCranston",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "adult", "male", "BryanCranston_24khz.wav"))
+        },
+        "DavidAttenborough": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/DavidAttenborough",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "elder", "male", "DavidAttenborough_24khz.wav"))
+        },
+        "DeathPuss&Boots": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/DeathPuss&Boots",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "adult", "male", "DeathPuss&Boots_24khz.wav"))
+        },
+        "GhostMW2": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/GhostMW2",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "adult", "male", "GhostMW2_24khz.wav"))
+        },
+        "JhonButlerASMR": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/JhonButlerASMR",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "elder", "male", "JhonButlerASMR_24khz.wav"))
+        },
+        "JhonMulaney": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/JhonMulaney",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "adult", "male", "JhonMulaney_24khz.wav"))
+        },
+        "MorganFreeman": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/MorganFreeman",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "adult", "male", "MorganFreeman_24khz.wav"))
+        },
+        "RainyDayHeadSpace": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/RainyDayHeadSpace",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "elder", "male", "RainyDayHeadSpace_24khz.wav"))
+        },
+        "WhisperSalemASMR": {
+            "lang": "eng",
+            "repo": "drewThomasson/fineTunedTTSModels",
+            "sub": "xtts-v2/eng/WhisperSalemASMR",
+            "voice": os.path.abspath(os.path.join("voices", "eng", "adult", "male", "WhisperSalemASMR_24khz.wav"))
+        }
+    },
+    "fairseq": {
+        "std": {
+            "lang": "multi",
+            "repo": "tts_models/[lang]/fairseq/vits",
+            "sub": "",
+            "voice": default_voice_file
+        }
+    }
+}

@@ -180,6 +180,52 @@ lock = threading.Lock()
 context = SessionContext()
 is_gui_process = False
 
+class DependencyError(Exception):
+    def __init__(self, message=None):
+        super().__init__(message)
+        # Automatically handle the exception when it's raised
+        self.handle_exception()
+
+    def handle_exception(self):
+        # Print the full traceback of the exception
+        traceback.print_exc()
+        
+        # Print the exception message
+        print(f'Caught DependencyError: {self}')
+        
+        # Exit the script if it's not a web process
+        if not is_gui_process:
+            sys.exit(1)
+            
+def demo_space_check(target_string):
+    try:
+        space_author_name = os.getenv("SPACE_AUTHOR_NAME", "Unknown")
+        space_repo_name = os.getenv("SPACE_REPO_NAME", "Unknown")
+        current_space_name = f"{space_author_name}/{space_repo_name}"
+        return current_space_name == target_string
+    except Exception:
+        return False
+
+def get_markdown_for_space(is_demo):
+    if is_demo:
+        return f'''
+        # Ebook2Audiobook v{version}<br/>
+        ### 🤨👉⚠️ **This is a demo space.**  
+        ### Please [![Duplicate this Space](https://huggingface.co/datasets/huggingface/badges/resolve/main/duplicate-this-space-md-dark.svg)](https://huggingface.co/spaces/DrewThomasson/ebook2audiobook?duplicate=true)Run it locally, or use the free Google Colab for full functionality.<br/>
+
+        ### Helpful Links:
+        [![Discord](https://dcbadge.limes.pink/api/server/https://discord.gg/bg5Kx43c6w)](https://discord.gg/bg5Kx43c6w)  
+        [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/DrewThomasson/ebook2audiobook)  
+        [![Free Google Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/DrewThomasson/ebook2audiobook/blob/main/Notebooks/colab_ebook2audiobook.ipynb)
+        '''
+    else:
+        return f'''
+        # Ebook2Audiobook v{version}<br/>
+        https://github.com/DrewThomasson/ebook2audiobook<br/>
+        Convert eBooks into immersive audiobooks with realistic voice TTS models.<br/>
+        Multiuser, multiprocessing, multithread on a geo cluster to share the conversion to the Grid.
+        '''
+
 def prepare_dirs(src, session):
     try:
         resume = False
@@ -224,8 +270,25 @@ def check_programs(prog_name, command, options):
         e = f'Error: There was an issue running {prog_name}.'
         DependencyError(e)
         return False, None
-
-def analyze_uploaded_file(zip_path, required_files):
+        
+def check_fine_tuned(fine_tuned, language):
+    try:
+        for parent, children in models.items():
+            if fine_tuned in children:
+                if language_xtts.get(language):
+                    tts = 'xtts'
+                else:
+                    tts = 'fairseq'
+                if parent == tts:
+                    return parent
+        return False
+    except Exception as e:
+        raise RuntimeError(e)
+        
+def analyze_uploaded_file(zip_path, required_files=None):
+    if required_files is None:
+        required_files = default_model_files
+    executable_extensions = {'.exe', '.bat', '.cmd', '.bash', '.bin', '.sh', '.msi', '.dll', '.com'}
     try:
         if not os.path.exists(zip_path):
             error = f"The file does not exist: {os.path.basename(zip_path)}"
@@ -1545,16 +1608,7 @@ def web_interface(args):
             </script>
             '''
         )
-        main_markdown = gr.Markdown(
-            f'''
-            <h1 style="line-height: 0.7">Ebook2Audiobook v{version}</h1>
-            <a href="https://github.com/DrewThomasson/ebook2audiobook" target="_blank" style="line-height:0">https://github.com/DrewThomasson/ebook2audiobook</a>
-            <div style="line-height: 1.3;">
-                Multiuser, multiprocessing tasks on a geo cluster to share the conversion to the Grid<br/>
-                Convert eBooks into immersive audiobooks with realistic TTS model voices.<br/>
-            </div>
-            '''
-        )
+        gr.Markdown(get_markdown_for_space(demo_space_check(conf.demo_huggingface)))
         with gr.Tabs():
             gr_tab_main = gr.TabItem('Main Parameters')
             
@@ -1827,9 +1881,13 @@ def web_interface(args):
             visible = True if session['audiobook'] is not None else False
             return gr.update(value=selected), gr.update(value=selected), gr.update(visible=visible)
 
-        def update_convert_btn(upload_file=None, upload_file_mode=None, custom_model_file=None, session=None):
-            if session is None:
-                return gr.update(variant='primary', interactive=False)
+        def update_convert_btn(upload_file=None, custom_model_file=None, session_id=None):
+            if demo_space_check(conf.demo_huggingface):
+                raise gr.Error("🤨👉⚠️ This is a non-functional GUI Demo, please duplicate this space or run it locally for full functionality, more info on github.", duration=15)
+                return
+            elif session_id is None:
+                yield gr.update(variant='primary', interactive=False)
+                return
             else:
                 if hasattr(upload_file, 'name') and not hasattr(custom_model_file, 'name'):
                     return gr.update(variant='primary', interactive=True)
@@ -1837,6 +1895,24 @@ def web_interface(args):
                     return gr.update(variant='primary', interactive=True)
                 else:
                     return gr.update(variant='primary', interactive=False)   
+
+        def update_interface():
+            return gr.update('Convert', variant='primary', interactive=False), gr.update(value=None), gr.update(value=None), gr.update(value=audiobook_file), update_audiobooks_ddn(), hide_modal()
+
+        def refresh_audiobook_list():
+            files = []
+            if audiobooks_dir is not None:
+                if os.path.exists(audiobooks_dir):
+                    files = [f for f in os.listdir(audiobooks_dir)]
+                    files.sort(key=lambda x: os.path.getmtime(os.path.join(audiobooks_dir, x)), reverse=True)
+            return files
+
+        def change_gr_audiobooks_ddn(audiobook):
+            if audiobooks_dir is not None:
+                if audiobook:
+                    link = os.path.join(audiobooks_dir, audiobook)
+                    return link, link, gr.update(visible=True)
+            return None, None, gr.update(visible=False)
 
         def change_gr_ebook_file(data, id):
             try:
