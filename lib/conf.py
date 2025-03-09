@@ -7,6 +7,7 @@ max_python_version = (3,12)
 
 NATIVE = 'native'
 FULL_DOCKER = 'full_docker'
+demo_huggingface = "drewThomasson/ebook2audiobook"
 
 debug_mode = True
 

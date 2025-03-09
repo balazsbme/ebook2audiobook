@@ -1,8 +1,8 @@
 # NOTE!!NOTE!!!NOTE!!NOTE!!!NOTE!!NOTE!!!NOTE!!NOTE!!!
 # THE WORD "CHAPTER" IN THE CODE DOES NOT MEAN
 # IT'S THE REAL CHAPTER OF THE EBOOK SINCE NO STANDARDS
-# ARE DEFINING A CHAPTER ON .EPUB FORMAT. THE WORD "PART"
-# IS USED TO PRINT TO THE TERMINAL, AND "CHAPTER" TO THE CODE
+# ARE DEFINING A CHAPTER ON .EPUB FORMAT. THE WORD "BLOCK"
+# IS USED TO PRINT IT OUT TO THE TERMINAL, AND "CHAPTER" TO THE CODE
 # WHICH IS LESS GENERIC FOR THE DEVELOPERS
 
 import argparse
@@ -14,6 +14,7 @@ import gc
 import gradio as gr
 import hashlib
 import json
+import math
 import os
 import platform
 import psutil
@@ -179,6 +180,52 @@ lock = threading.Lock()
 context = SessionContext()
 is_gui_process = False
 
+class DependencyError(Exception):
+    def __init__(self, message=None):
+        super().__init__(message)
+        # Automatically handle the exception when it's raised
+        self.handle_exception()
+
+    def handle_exception(self):
+        # Print the full traceback of the exception
+        traceback.print_exc()
+        
+        # Print the exception message
+        print(f'Caught DependencyError: {self}')
+        
+        # Exit the script if it's not a web process
+        if not is_gui_process:
+            sys.exit(1)
+            
+def demo_space_check(target_string):
+    try:
+        space_author_name = os.getenv("SPACE_AUTHOR_NAME", "Unknown")
+        space_repo_name = os.getenv("SPACE_REPO_NAME", "Unknown")
+        current_space_name = f"{space_author_name}/{space_repo_name}"
+        return current_space_name == target_string
+    except Exception:
+        return False
+
+def get_markdown_for_space(is_demo):
+    if is_demo:
+        return f'''
+        # Ebook2Audiobook v{version}<br/>
+        ### 🤨👉⚠️ **This is a demo space.**  
+        ### Please [![Duplicate this Space](https://huggingface.co/datasets/huggingface/badges/resolve/main/duplicate-this-space-md-dark.svg)](https://huggingface.co/spaces/DrewThomasson/ebook2audiobook?duplicate=true)Run it locally, or use the free Google Colab for full functionality.<br/>
+
+        ### Helpful Links:
+        [![Discord](https://dcbadge.limes.pink/api/server/https://discord.gg/bg5Kx43c6w)](https://discord.gg/bg5Kx43c6w)  
+        [![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/DrewThomasson/ebook2audiobook)  
+        [![Free Google Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/DrewThomasson/ebook2audiobook/blob/main/Notebooks/colab_ebook2audiobook.ipynb)
+        '''
+    else:
+        return f'''
+        # Ebook2Audiobook v{version}<br/>
+        https://github.com/DrewThomasson/ebook2audiobook<br/>
+        Convert eBooks into immersive audiobooks with realistic voice TTS models.<br/>
+        Multiuser, multiprocessing, multithread on a geo cluster to share the conversion to the Grid.
+        '''
+
 def prepare_dirs(src, session):
     try:
         resume = False
@@ -223,8 +270,25 @@ def check_programs(prog_name, command, options):
         e = f'Error: There was an issue running {prog_name}.'
         DependencyError(e)
         return False, None
-
-def analyze_uploaded_file(zip_path, required_files):
+        
+def check_fine_tuned(fine_tuned, language):
+    try:
+        for parent, children in models.items():
+            if fine_tuned in children:
+                if language_xtts.get(language):
+                    tts = 'xtts'
+                else:
+                    tts = 'fairseq'
+                if parent == tts:
+                    return parent
+        return False
+    except Exception as e:
+        raise RuntimeError(e)
+        
+def analyze_uploaded_file(zip_path, required_files=None):
+    if required_files is None:
+        required_files = default_model_files
+    executable_extensions = {'.exe', '.bat', '.cmd', '.bash', '.bin', '.sh', '.msi', '.dll', '.com'}
     try:
         if not os.path.exists(zip_path):
             error = f"The file does not exist: {os.path.basename(zip_path)}"
@@ -412,6 +476,9 @@ def maths_to_words(text, lang, lang_iso1, tts_engine):
     return text.strip()
 
 def normalize_text(text, lang, lang_iso1, tts_engine):
+    # Replace punctuations causing hallucinations
+    pattern = f"[{''.join(map(re.escape, switch_punctuations.keys()))}]"
+    text = re.sub(pattern, lambda match: switch_punctuations[match.group()], text)
     # Replace NBSP with a normal space
     text = text.replace("\xa0", " ")
     if lang in abbreviations_mapping:
@@ -576,34 +643,6 @@ def filter_pattern(doc_identifier):
         elif re.match(r'^\d+$', segment):
             return 'numbers'
     return None
-'''
-def get_sentences(phoneme_list, max_tokens):
-    sentences = []
-    current_sentence = ""
-    current_phoneme_count = 0
-    for phoneme in phoneme_list:
-        part_phoneme_count = len(phoneme.split())
-        # If adding this phoneme exceeds max tokens, finalize the current sentence
-        if current_phoneme_count + part_phoneme_count > max_tokens:
-            sentences.append(current_sentence.strip())
-            current_sentence = phoneme
-            current_phoneme_count = part_phoneme_count
-        else:
-            # Add the phoneme to the current sentence
-            current_sentence += (" " if current_sentence else "") + phoneme
-            current_phoneme_count += part_phoneme_count
-        # Handle overly long rows by splitting them in the middle
-        if current_phoneme_count > max_tokens * 2:
-            new_phoneme_list = current_sentence.split()
-            mid_point = len(new_phoneme_list) // 2
-            sentences.append(" ".join(new_phoneme_list[:mid_point]).strip())
-            current_sentence = " ".join(new_phoneme_list[mid_point:]).strip()
-            current_word_count = len(current_sentence.split())
-    # Add the final sentence if any content remains
-    if current_sentence:
-        sentences.append(current_sentence.strip())
-    return sentences
-'''
 
 def get_sentences(phoneme_list, max_tokens):
     sentences = []
@@ -639,21 +678,9 @@ def get_sentences(phoneme_list, max_tokens):
         sentences.append(current_sentence.strip())
     return sentences
   
-def get_batch_size(list, session):
-    total_size = 0
-    print(list)
-    for file in list:
-        try:
-            total_size += os.path.getsize(os.path.join(session['chapters_dir'], file))
-        except Exception as e:
-            error = f'Something wrong trying to get the size of {file}'
-            print(error)
-            pass
-    avg_size = total_size / len(list) if list else 0
-    if avg_size > 0:
-        avail_memory = psutil.virtual_memory().available * 0.6
-        return int(avail_memory // avg_size)
-    return 16
+def get_free_memory(list, session):
+    avail_memory = psutil.virtual_memory().available * 0.6
+    return avail_memory
 
 def get_sanitized(str, replacement="_"):
     sanitized = re.sub(r'\s+', replacement, str)
@@ -669,44 +696,63 @@ def convert_chapters_to_audio(session):
         progress_bar = None
         if is_gui_process:
             progress_bar = gr.Progress(track_tqdm=True)        
-        tts_manager = TTSManager(session)
+        tts_manager = TTSManager(session, is_gui_process)
         if tts_manager.params['tts'] is None:
             return False
         resume_chapter = 0
+        missing_chapters = []
         resume_sentence = 0
-        # Check existing files to resume the process if it was interrupted
-        existing_chapters = sorted([f for f in os.listdir(session['chapters_dir']) if f.endswith(f'.{default_audio_proc_format}')])
-        existing_sentences = sorted([f for f in os.listdir(session['chapters_dir_sentences']) if f.endswith(f'.{default_audio_proc_format}')])
-
+        missing_sentences = []
+        existing_chapters = sorted(
+            [f for f in os.listdir(session['chapters_dir']) if f.endswith(f'.{default_audio_proc_format}')],
+            key=lambda x: int(re.search(r'\d+', x).group())
+        )
         if existing_chapters:
-            count_chapter_files = len(existing_chapters)
-            resume_chapter = count_chapter_files - 1 if count_chapter_files > 0 else 0
-            print(f'Resuming from part {count_chapter_files}')
+            resume_chapter = max(int(re.search(r'\d+', f).group()) for f in existing_chapters) 
+            msg = f'Resuming from block {resume_chapter}'
+            print(msg)
+            existing_chapter_numbers = {int(re.search(r'\d+', f).group()) for f in existing_chapters}
+            missing_chapters = [
+                i for i in range(1, resume_chapter) if i not in existing_chapter_numbers
+            ]
+            if resume_chapter not in missing_chapters:
+                missing_chapters.append(resume_chapter)
+        existing_sentences = sorted(
+            [f for f in os.listdir(session['chapters_dir_sentences']) if f.endswith(f'.{default_audio_proc_format}')],
+            key=lambda x: int(re.search(r'\d+', x).group())
+        )
         if existing_sentences:
-            resume_sentence = len(existing_sentences)
-            print(f'Resuming from sentence {resume_sentence}')
-
+            resume_sentence = max(int(re.search(r'\d+', f).group()) for f in existing_sentences)
+            msg = f"Resuming from sentence {resume_sentence}"
+            print(msg)
+            existing_sentence_numbers = {int(re.search(r'\d+', f).group()) for f in existing_sentences}
+            missing_sentences = [
+                i for i in range(1, resume_sentence) if i not in existing_sentence_numbers
+            ]
+            if resume_sentence not in missing_sentences:
+                missing_sentences.append(resume_sentence)
         total_chapters = len(session['chapters'])
         total_sentences = sum(len(array) for array in session['chapters'])
         sentence_number = 0
-
         with tqdm(total=total_sentences, desc='convertsion 0.00%', bar_format='{desc}: {n_fmt}/{total_fmt} ', unit='step', initial=resume_sentence) as t:
-            t.n = resume_sentence
-            for x in range(resume_chapter, total_chapters):
+            msg = f'A total of {total_chapters} blocks and {total_sentences} sentences...'
+            for x in range(0, total_chapters):
                 chapter_num = x + 1
                 chapter_audio_file = f'chapter_{chapter_num}.{default_audio_proc_format}'
                 sentences = session['chapters'][x]
                 sentences_count = len(sentences)
-                # Mark the starting sentence of the chapter
                 start = sentence_number
-                msg = f'Part {chapter_num} containing {sentences_count} sentences...'
+                msg = f'Block {chapter_num} containing {sentences_count} sentences...'
                 print(msg)
                 for i, sentence in enumerate(sentences):
                     if session['cancellation_requested']:
                         msg = 'Cancel requested'
                         print(msg)
                         return False
-                    if sentence_number >= resume_sentence:
+                    if sentence_number in missing_sentences or sentence_number > resume_sentence or (sentence_number == 0 and resume_sentence == 0):
+                        if sentence_number <= resume_sentence and sentence_number > 0:
+                            msg = f'**Recovering missing file sentence {sentence_number}'
+                            print(msg)
                         tts_manager.params['sentence_audio_file'] = os.path.join(session['chapters_dir_sentences'], f'{sentence_number}.{default_audio_proc_format}')                       
                         tts_manager.params['sentence'] = sentence
                         if tts_manager.convert_sentence_to_audio():                           
@@ -716,16 +762,21 @@ def convert_chapters_to_audio(session):
                             print(msg)
                         else:
                             return False
-                    t.update(1)
+                        t.update(1)
                     if progress_bar is not None:
                         progress_bar(sentence_number / total_sentences)
                     sentence_number += 1
+                if progress_bar is not None:
+                    progress_bar(sentence_number / total_sentences)
                 end = sentence_number - 1 if sentence_number > 1 else sentence_number
-                msg = f"\nEnd of Part {chapter_num}"
+                msg = f"End of Block {chapter_num}"
                 print(msg)
-                if sentence_number >= resume_sentence:
+                if chapter_num in missing_chapters or sentence_number > resume_sentence:
+                    if chapter_num <= resume_chapter:
+                        msg = f'**Recovering missing file block {chapter_num}'
+                        print(msg)
                     if combine_audio_sentences(chapter_audio_file, start, end, session):
-                        msg = f'Combining part {chapter_num} to audio, sentence {start} to {end}'
+                        msg = f'Combining block {chapter_num} to audio, sentence {start} to {end}'
                         print(msg)
                     else:
                         msg = 'combine_audio_sentences() failed!'
@@ -735,56 +786,97 @@ def convert_chapters_to_audio(session):
     except Exception as e:
         DependencyError(e)
         return False
-        
+
 def combine_audio_sentences(chapter_audio_file, start, end, session):
     try:
         chapter_audio_file = os.path.join(session['chapters_dir'], chapter_audio_file)
-        combined_audio = AudioSegment.empty()  
-        # Get all audio sentence files sorted by their numeric indices
+        file_list = os.path.join(session['chapters_dir_sentences'], 'sentences.txt')
         sentence_files = [f for f in os.listdir(session['chapters_dir_sentences']) if f.endswith(f'.{default_audio_proc_format}')]
         sentences_dir_ordered = sorted(sentence_files, key=lambda x: int(re.search(r'\d+', x).group()))
-        # Filter the files in the range [start, end]
         selected_files = [
-            f for f in sentences_dir_ordered 
+            os.path.join(session['chapters_dir_sentences'], f)
+            for f in sentences_dir_ordered
             if start <= int(''.join(filter(str.isdigit, os.path.basename(f)))) <= end
         ]
-        for f in selected_files:
-            if session['cancellation_requested']:
-                msg = 'Cancel requested'
+        if not selected_files:
+            error = 'No audio files found in the specified range.'
+            print(error)
+            return False
+        with open(file_list, 'w') as f:
+            for file in selected_files:
+                file = file.replace("\\", "/")
+                f.write(f'file {file}\n')
+        ffmpeg_cmd = [
+            shutil.which('ffmpeg'), '-y', '-safe', '0', '-f', 'concat', '-i', file_list,
+            '-c:a', default_audio_proc_format, '-map_metadata', '-1', chapter_audio_file
+        ]
+        try:
+            process = subprocess.Popen(
+                ffmpeg_cmd,
+                env={},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                encoding='utf-8'
+            )
+            for line in process.stdout:
+                print(line, end='')  # Print each line of stdout
+            process.wait()
+            if process.returncode == 0:
+                os.remove(file_list)
+                msg = f'********* Combined block audio file saved to {chapter_audio_file}'
                 print(msg)
+                return True
+            else:
+                error = process.returncode
+                print(error, ffmpeg_cmd)
                 return False
-            audio_segment = AudioSegment.from_file(os.path.join(session['chapters_dir_sentences'], f), format=default_audio_proc_format)
-            combined_audio += audio_segment
-        combined_audio.export(chapter_audio_file, format=default_audio_proc_format)
-        msg = f'********* Combined part audio file saved to {chapter_audio_file}'
-        print(msg)
-        return True
+        except subprocess.CalledProcessError as e:
+            DependencyError(e)
+            return False
     except Exception as e:
         DependencyError(e)
         return False
 
 def combine_audio_chapters(session):
-    def assemble_audio():
+    def assemble_segments():
         try:
-            combined_audio = AudioSegment.empty()
-            batch_size = get_batch_size(chapter_files, session)
-            print(f'************ DYNAMIC BATCH SIZE SET TO {batch_size} ******************')
-            # Process the part files in batches
-            for i in range(0, len(chapter_files), batch_size):
-                batch_files = chapter_files[i:i + batch_size]
-                batch_audio = AudioSegment.empty()  # Initialize an empty AudioSegment for the batch
-                # Sequentially append each file in the current batch to the batch_audio
-                for chapter_file in batch_files:
-                    if session['cancellation_requested']:
-                        print('Cancel requested')
-                        return False
-                    audio_segment = AudioSegment.from_file(os.path.join(session['chapters_dir'], chapter_file), format=default_audio_proc_format)
-                    batch_audio += audio_segment
-                combined_audio += batch_audio
-            combined_audio.export(combined_chapters_file, format=default_audio_proc_format)
-            msg = f'********* total audio parts saved to {combined_chapters_file}'
-            print(msg)
-            return True
+            file_list = os.path.join(session['chapters_dir'], 'chapters.txt')
+            chapter_files_ordered = sorted(chapter_files, key=lambda x: int(re.search(r'\d+', x).group()))
+            if not chapter_files_ordered:
+                error = 'No block files found.'
+                print(error)
+                return False
+            with open(file_list, "w") as f:
+                for file in chapter_files_ordered:
+                    file = file.replace("\\", "/")
+                    f.write(f"file '{file}'\n")
+            ffmpeg_cmd = [
+                shutil.which('ffmpeg'), '-y', '-safe', '0', '-f', 'concat', '-i', file_list,
+                '-c:a', default_audio_proc_format, '-map_metadata', '-1', combined_chapters_file
+            ]
+            try:
+                process = subprocess.Popen(
+                    ffmpeg_cmd,
+                    env={},
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    encoding='utf-8'
+                )
+                for line in process.stdout:
+                    print(line, end='')  # Print each line of stdout
+                process.wait()
+                if process.returncode == 0:
+                    os.remove(file_list)
+                    msg = f'********* total audio blocks saved to {combined_chapters_file}'
+                    print(msg)
+                    return True
+                else:
+                    error = process.returncode
+                    print(error, ffmpeg_cmd)
+                    return False
+            except subprocess.CalledProcessError as e:
+                DependencyError(e)
+                return False
         except Exception as e:
             DependencyError(e)
             return False
@@ -926,14 +1018,14 @@ def combine_audio_chapters(session):
         if len(chapter_files) > 0:
             combined_chapters_file = os.path.join(session['process_dir'], session['metadata']['title'] + '.' + default_audio_proc_format)
             metadata_file = os.path.join(session['process_dir'], 'metadata.txt')
-            if assemble_audio():
+            if assemble_segments():
                 if generate_ffmpeg_metadata():
                     final_name = get_sanitized(session['metadata']['title'] + '.' + session['output_format'])
                     final_file = os.path.join(session['audiobooks_dir'], final_name)                       
                     if export_audio():
                         return final_file
         else:
-            error = 'No part files exists!'
+            error = 'No block files exists!'
             print(error)
         return None
     except Exception as e:
@@ -1014,8 +1106,8 @@ def delete_unused_tmp_dirs(web_dir, days, session):
                 dir_mtime = os.path.getmtime(full_dir_path)
                 dir_ctime = os.path.getctime(full_dir_path)
                 if dir_mtime < threshold_time and dir_ctime < threshold_time:
-                    shutil.rmtree(full_dir_path)
-                    print(f"Deleted unmatched or old directory: {full_dir_path}")
+                    shutil.rmtree(full_dir_path, ignore_errors=True)
+                    print(f"Deleted expired session: {full_dir_path}")
             except Exception as e:
                 print(f"Error deleting {full_dir_path}: {e}")
 
@@ -1040,13 +1132,13 @@ def convert_ebook_batch(args):
             if any(file.endswith(ext) for ext in ebook_formats):
                 args['ebook'] = file
                 print(f'Processing eBook file: {os.path.basename(file)}')
-                progress_status, audiobook_file = convert_ebook(args)
-                if audiobook_file is None:
+                progress_status, passed = convert_ebook(args)
+                if passed is False:
                     print(f'Conversion failed: {progress_status}')
                     sys.exit(1)
                 args['ebook_list'].remove(file) 
         reset_ebook_session(args['session'])
-        return progress_status, audiobook_file
+        return progress_status, passed
     else:
         print(f'the ebooks source is not a list!')
         sys.exit(1)       
@@ -1062,12 +1154,12 @@ def convert_ebook(args):
             if not os.path.splitext(args['ebook'])[1]:
                 error = 'The selected ebook file has no extension. Please select a valid file.'
                 print(error)
-                return error, None
+                return error
 
             if not os.path.exists(args['ebook']):
                 error = 'The ebook path you provided does not exist'
                 print(error)
-                return error, None
+                return error
 
             try:
                 if len(args['language']) == 2:
@@ -1088,7 +1180,7 @@ def convert_ebook(args):
             if args['language'] not in language_mapping.keys():
                 error = 'The language you provided is not (yet) supported'
                 print(error)
-                return error, None
+                return error
 
             is_gui_process = args['is_gui_process']
             id = args['session'] if args['session'] is not None else str(uuid.uuid4())
@@ -1223,26 +1315,27 @@ def convert_ebook(args):
                                             if is_gui_process:
                                                 if len(chapters_dirs) > 1:
                                                     if os.path.exists(session['chapters_dir']):
-                                                        shutil.rmtree(session['chapters_dir'])
+                                                        shutil.rmtree(session['chapters_dir'], ignore_errors=True)
                                                     if os.path.exists(session['epub_path']):
                                                         os.remove(session['epub_path'])
                                                     if os.path.exists(session['cover']):
                                                         os.remove(session['cover'])
                                                 else:
                                                     if os.path.exists(session['process_dir']):
-                                                        shutil.rmtree(session['process_dir'])
+                                                        shutil.rmtree(session['process_dir'], ignore_errors=True)
                                             else:
                                                 if os.path.exists(session['voice_dir']):
                                                     if not any(os.scandir(session['voice_dir'])):
-                                                        shutil.rmtree(session['voice_dir'])
+                                                        shutil.rmtree(session['voice_dir'], ignore_errors=True)
                                                 if os.path.exists(session['custom_model_dir']):
                                                     if not any(os.scandir(session['custom_model_dir'])):
-                                                        shutil.rmtree(session['custom_model_dir'])
+                                                        shutil.rmtree(session['custom_model_dir'], ignore_errors=True)
                                                 if os.path.exists(session['session_dir']):
-                                                    shutil.rmtree(session['session_dir'])
+                                                    shutil.rmtree(session['session_dir'], ignore_errors=True)
                                             progress_status = f'Audiobook {os.path.basename(final_file)} created!'
+                                            session['audiobook'] = final_file
                                             print(info_session)
-                                            return progress_status, final_file 
+                                            return progress_status, True
                                         else:
                                             error = 'combine_audio_chapters() error: final_file not created!'
                                     else:
@@ -1263,10 +1356,10 @@ def convert_ebook(args):
             if not is_gui_process and id is not None:
                 error += info_session
         print(error)
-        return error, None
+        return error, False
     except Exception as e:
         print(f'convert_ebook() Exception: {e}')
-        return e, None
+        return e, False
 
 def restore_session_from_data(data, session):
     try:
@@ -1331,7 +1424,6 @@ def web_interface(args):
     is_gui_shared = args['share']
     audiobooks_dir = None
     ebook_src = None
-    audiobook_file = None
     language_options = [
         (
             f"{details['name']} - {details['native_name']}" if details['name'] != details['native_name'] else details['name'],
@@ -1345,7 +1437,7 @@ def web_interface(args):
     fine_tuned_options = []
     audiobook_options = []
     
-    src_label_file = f'Select a File {ebook_formats}'
+    src_label_file = 'Select a File'
     src_label_dir = 'Select a Directory'
     
     visible_gr_tab_preferences = interface_component_options['gr_tab_preferences']
@@ -1516,16 +1608,7 @@ def web_interface(args):
             </script>
             '''
         )
-        main_markdown = gr.Markdown(
-            f'''
-            <h1 style="line-height: 0.7">Ebook2Audiobook v{version}</h1>
-            <a href="https://github.com/DrewThomasson/ebook2audiobook" target="_blank" style="line-height:0">https://github.com/DrewThomasson/ebook2audiobook</a>
-            <div style="line-height: 1.3;">
-                Multiuser, multiprocessing tasks on a geo cluster to share the conversion to the Grid<br/>
-                Convert eBooks into immersive audiobooks with realistic TTS model voices.<br/>
-            </div>
-            '''
-        )
+        gr.Markdown(get_markdown_for_space(demo_space_check(conf.demo_huggingface)))
         with gr.Tabs():
             gr_tab_main = gr.TabItem('Main Parameters')
             
@@ -1632,6 +1715,7 @@ def web_interface(args):
                     label='Enable Text Splitting', 
                     value=default_xtts_settings['enable_text_splitting'],
                     info='Coqui-tts builtin text splitting. Can help against hallucinations bu can also be worse.',
+                    visible=False
                 )
     
         gr_state = gr.State(value={"hash": None})
@@ -1797,9 +1881,13 @@ def web_interface(args):
             visible = True if session['audiobook'] is not None else False
             return gr.update(value=selected), gr.update(value=selected), gr.update(visible=visible)
 
-        def update_convert_btn(upload_file=None, upload_file_mode=None, custom_model_file=None, session=None):
-            if session is None:
-                return gr.update(variant='primary', interactive=False)
+        def update_convert_btn(upload_file=None, custom_model_file=None, session_id=None):
+            if demo_space_check(conf.demo_huggingface):
+                raise gr.Error("🤨👉⚠️ This is a non-functional GUI Demo, please duplicate this space or run it locally for full functionality, more info on github.", duration=15)
+                return
+            elif session_id is None:
+                yield gr.update(variant='primary', interactive=False)
+                return
             else:
                 if hasattr(upload_file, 'name') and not hasattr(custom_model_file, 'name'):
                     return gr.update(variant='primary', interactive=True)
@@ -1807,6 +1895,24 @@ def web_interface(args):
                     return gr.update(variant='primary', interactive=True)
                 else:
                     return gr.update(variant='primary', interactive=False)   
+
+        def update_interface():
+            return gr.update('Convert', variant='primary', interactive=False), gr.update(value=None), gr.update(value=None), gr.update(value=audiobook_file), update_audiobooks_ddn(), hide_modal()
+
+        def refresh_audiobook_list():
+            files = []
+            if audiobooks_dir is not None:
+                if os.path.exists(audiobooks_dir):
+                    files = [f for f in os.listdir(audiobooks_dir)]
+                    files.sort(key=lambda x: os.path.getmtime(os.path.join(audiobooks_dir, x)), reverse=True)
+            return files
+
+        def change_gr_audiobooks_ddn(audiobook):
+            if audiobooks_dir is not None:
+                if audiobook:
+                    link = os.path.join(audiobooks_dir, audiobook)
+                    return link, link, gr.update(visible=True)
+            return None, None, gr.update(visible=False)
 
         def change_gr_ebook_file(data, id):
             try:
@@ -2101,7 +2207,7 @@ def web_interface(args):
             if session['tts_engine'] == XTTSv2:
                 visible = True
                 if session['fine_tuned'] != 'internal':
-                    visible = visible_gr_group_custom_model
+                    visible = False
                 return gr.update(visible=visible_gr_tab_preferences), gr.update(visible=visible), update_gr_fine_tuned_list(id), gr.update(label=f"*Custom Model Zip File (Mandatory files {models[session['tts_engine']][default_fine_tuned]['files']})")
             else:
                 return gr.update(visible=False), gr.update(visible=False), update_gr_fine_tuned_list(id), gr.update(label=f"*Custom Model Zip File (Mandatory files {models[session['tts_engine']][default_fine_tuned]['files']})")
@@ -2109,10 +2215,9 @@ def web_interface(args):
         def change_gr_fine_tuned_list(selected, id):
             session = context.get_session(id)
             visible = False
-            if selected == 'internal' and session['tts_engine'] == XTTSv2:
-                visible = visible_gr_group_custom_model
-            else:
-                visible = False
+            if session['tts_engine'] == XTTSv2:
+                if selected == 'internal':
+                    visible = visible_gr_group_custom_model
             session['fine_tuned'] = selected
             return gr.update(visible=visible)
 
@@ -2189,8 +2294,8 @@ def web_interface(args):
                             if any(file.endswith(ext) for ext in ebook_formats):
                                 print(f'Processing eBook file: {os.path.basename(file)}')
                                 args['ebook'] = file
-                                progress_status, audiobook_file = convert_ebook(args)
-                                if audiobook_file is None:
+                                progress_status, passed = convert_ebook(args)
+                                if passed is False:
                                     if session['status'] == 'converting':
                                         error = 'Conversion cancelled.'
                                         session['status'] = None
@@ -2208,12 +2313,12 @@ def web_interface(args):
                                         msg = f"{len(args['ebook_list'])} remaining..."
                                     else: 
                                         msg = 'Conversion successful!'
-                                    yield gr.update(value=msg), update_gr_audiobook_list(id)
+                                    yield gr.update(value=msg)
                         session['status'] = None
                     else:
                         print(f"Processing eBook file: {os.path.basename(args['ebook'])}")
-                        progress_status, audiobook_file = convert_ebook(args)
-                        if audiobook_file is None:
+                        progress_status, passed = convert_ebook(args)
+                        if passed is False:
                             if session['status'] == 'converting':
                                 session['status'] = None
                                 error = 'Conversion cancelled.'
@@ -2224,13 +2329,13 @@ def web_interface(args):
                             show_alert({"type": "success", "msg": progress_status})
                             reset_ebook_session(args['session'])
                             msg = 'Conversion successful!'
-                            return gr.update(value=msg), gr.update()
+                            return gr.update(value=msg)
                 if error is not None:
                     show_alert({"type": "warning", "msg": error})
             except Exception as e:
                 error = f'submit_convert_btn(): {e}'
                 alert_exception(error)
-            return gr.update(value=''), gr.update()
+            return gr.update(value='')
 
         def update_gr_audiobook_list(id):
             try:
@@ -2246,7 +2351,7 @@ def web_interface(args):
                 )
                 session['audiobook'] = session['audiobook'] if session['audiobook'] in [option[1] for option in audiobook_options] else None
                 if len(audiobook_options) > 0:
-                    if not session['audiobook']:
+                    if session['audiobook'] is not None:
                         session['audiobook'] = audiobook_options[0][1]
                 return gr.update(choices=audiobook_options, value=session['audiobook'])
             except Exception as e:
@@ -2510,7 +2615,7 @@ def web_interface(args):
                 gr_custom_model_list, gr_fine_tuned_list, gr_output_format_list, gr_temperature, gr_length_penalty,
                 gr_num_beams, gr_repetition_penalty, gr_top_k, gr_top_p, gr_speed, gr_enable_text_splitting
             ],
-            outputs=[gr_conversion_progress, gr_audiobook_list]
+            outputs=[gr_conversion_progress]
         ).then(
             fn=refresh_interface,
             inputs=[gr_session],
