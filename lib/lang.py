@@ -256,8 +256,8 @@ abbreviations_mapping = {
     "hun": {
         "Dr.": "Doktor",
         "u.": "utca",
-        "pl.": "plac",
-        "stb.": "stb."
+        "pl.": "például",
+        "stb.": "satöbbi"
     },
     "pol": {
         "Dr.": "Doktor",
